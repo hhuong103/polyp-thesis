@@ -1,0 +1,34 @@
+[
+  {
+    "id": "final-unet",
+    "name": "U-Net · mô hình chính",
+    "architecture": "unet",
+    "encoder": "resnet34",
+    "weights": "models/final_polyp_model.pth",
+    "image_size": 256,
+    "history": "results/unet_resnet34_seed42/history.csv",
+    "note": "Checkpoint đã huấn luyện; cần xác minh tập test độc lập với quá trình huấn luyện."
+  },
+  {
+    "id": "unetplusplus",
+    "name": "U-Net++ · ResNet34",
+    "architecture": "unetplusplus",
+    "encoder": "resnet34",
+    "weights": "results/unetplusplus_resnet34_seed42/best_weights.pth",
+    "image_size": 256,
+    "history": "results/unetplusplus_resnet34_seed42/history.csv",
+    "training": {"max_epochs": 50, "patience": 8},
+    "note": "Checkpoint tốt nhất theo validation Dice. Khi chưa hoàn tất huấn luyện, kết quả chỉ là tạm thời."
+  },
+  {
+    "id": "smoke-unet",
+    "evaluation_enabled": false,
+    "name": "U-Net · smoke test",
+    "architecture": "unet",
+    "encoder": "resnet34",
+    "weights": "checkpoints/smoke_test_unet.pth",
+    "image_size": 256,
+    "history": "results/smoke_test/history.csv",
+    "note": "Chỉ là checkpoint kiểm tra pipeline, không phải baseline huấn luyện đầy đủ."
+  }
+]

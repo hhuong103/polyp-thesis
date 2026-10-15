@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="vi">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Polyp Lab — Phân đoạn & so sánh</title><link rel="stylesheet" href="/assets/style.css?v=2"><script src="/assets/app.js?v=2" defer></script></head>
+<body>
+<header><a class="brand" href="/">◈ <b>POLYP<span>LAB</span></b></a><span class="badge">KHÔNG GIAN NGHIÊN CỨU</span><span id="connection" role="status">Đang kết nối…</span></header>
+<main>
+<div class="intro"><div><p class="eyebrow">PHÂN ĐOẠN ẢNH NỘI SOI / MODEL BENCHMARK</p><h1>Một ảnh. Hai góc nhìn.</h1><p>Đối chiếu dự đoán, đo độ chính xác và khám phá những vùng mô hình bỏ sót.</p></div><div class="version">U-NET FAMILY<br><b>256 × 256</b><br>Độ phân giải đầu vào mô hình</div></div>
+<nav aria-label="Các khu vực"><button class="tab active" data-tab="compare">01 / Phân đoạn & so sánh</button><button class="tab" data-tab="reports">02 / Báo cáo & đánh giá</button></nav>
+<details class="panel training-panel"><summary id="training-title">Trạng thái huấn luyện U-Net++</summary><div class="section-title"><h2>Tiến độ checkpoint</h2><button id="refresh-models" type="button">Cập nhật ngay</button></div><div id="training-status" role="status" aria-live="polite">Đang đọc trạng thái checkpoint…</div><p class="note">Tự cập nhật mỗi 15 giây. Chỉ số được ghi sau mỗi epoch; trạng thái checkpoint không xác nhận tiến trình huấn luyện còn chạy.</p></details>
+<section id="compare" class="page">
+<div class="workspace"><aside class="panel">
+<h2>Phân đoạn polyp</h2>
+<form id="compare-form">
+<label for="prediction-mode">Chế độ</label>
+<select id="prediction-mode"><option value="single">Một mô hình</option><option value="compare">So sánh hai mô hình</option></select>
+<label class="upload">Ảnh nội soi <span>JPEG / PNG · tối đa 10 MB</span><input id="image-file" type="file" accept="image/jpeg,image/png" required></label>
+<details class="truth-input"><summary>Thêm mask chuẩn để tính Dice/IoU (tùy chọn)</summary><label class="upload">Mask chuẩn <span>PNG nhị phân, cùng kích thước ảnh</span><input id="truth-file" type="file" accept="image/png,image/jpeg"></label></details>
+<label for="model-a">Chọn mô hình</label><select id="model-a" required></select><p id="note-a" class="note"></p>
+<div id="second-model" hidden><label for="model-b">So sánh với</label><select id="model-b"></select><p id="note-b" class="note"></p></div>
+<button id="predict-button" class="primary" type="submit" disabled>Phân đoạn polyp ↗</button>
+</form>
+<p class="note">Chọn U-Net hoặc U-Net++. Chế độ so sánh chạy cả hai trên cùng một ảnh. Mask chuẩn là tùy chọn để tính Dice/IoU.</p>
+</aside>
+<div class="results-area"><div class="section-title"><h2>Kết quả phân đoạn</h2><span id="timing" class="badge">CHƯA CHẠY</span></div><p id="message" role="status" aria-live="polite">Chọn ảnh và mô hình, sau đó nhấn Phân đoạn polyp.</p><div id="results" class="empty"><span>⊞</span><h3>Ảnh của bạn, kết quả có thể đối chiếu</h3><p>Ảnh gốc, Prediction Mask, Overlay và thời gian suy luận sẽ xuất hiện tại đây.</p></div><div id="metrics"></div></div></div>
+</section>
+<section id="reports" class="page" hidden><div class="section-title"><div><h2>Đánh giá trên tập kiểm thử</h2><p>Trung bình Dice và IoU theo ảnh ở độ phân giải gốc, ngưỡng dự đoán 0,5.</p></div><button id="evaluate" class="primary">Đánh giá toàn bộ tập test ↗</button></div><p class="notice">Checkpoint smoke-test không phải baseline hoàn chỉnh. Cần xác minh tập kiểm thử độc lập với dữ liệu huấn luyện trước khi dùng kết quả cho luận văn.</p><p id="evaluation-status" role="status"></p><progress id="progress" value="0" max="1" hidden></progress><div id="test-results"></div><div class="section-title"><h2>Lịch sử huấn luyện</h2><button id="refresh-history">Tải lại dữ liệu</button></div><div id="histories" class="history-grid"></div><div class="section-title"><h2>Phân tích trường hợp dự đoán sai</h2><span class="badge">XẾP THEO DICE THẤP NHẤT</span></div><p>Chọn một ảnh để xem vùng dương tính giả và âm tính giả. Bảng hiển thị 5 trường hợp Dice thấp nhất của mỗi mô hình; số liệu chỉ mô tả sai lệch, không tự suy diễn nguyên nhân.</p><div id="failures"></div><div id="case-results"></div></section>
+<p id="stale-warning" class="notice" hidden>Báo cáo đã cũ: checkpoint, split hoặc dữ liệu đã thay đổi. Hãy đánh giá lại trước khi đối chiếu các trường hợp sai lệch.</p>
+<p><a href="/api/evaluation.csv" download>Tải toàn bộ kết quả kiểm thử CSV ↓</a></p>
+<footer>POLYP LAB / Mask chuẩn mức xám: ngưỡng 127; mask 0/1: ngưỡng 0. Công cụ nghiên cứu, không dùng chẩn đoán. <a href="/docs" target="_blank" rel="noopener">API documentation ↗</a></footer>
+</main></body></html>

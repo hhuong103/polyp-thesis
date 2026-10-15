@@ -1,5 +1,6 @@
 # Python environments and caches
 .venv/
+.venv_backup/
 venv/
 env/
 __pycache__/
@@ -28,6 +29,7 @@ secrets*.json
 # Dataset artifacts (keep lightweight split manifests)
 data/raw/
 data/processed/
+test_images/
 
 # Trained models and experiment outputs
 checkpoints/
