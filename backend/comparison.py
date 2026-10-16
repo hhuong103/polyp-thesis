@@ -119,12 +119,17 @@ def infer(entry, image):
 
 
 def result(entry, image, gold=None):
-    pred, ms, total = infer(entry, image)
+    with LOCK:
+        pred, ms, total = infer(entry, image)
+        network = load_network(entry)
+        parameter_count = sum(parameter.numel() for parameter in network.parameters())
     overlay = image.copy()
     overlay[pred] = (.6 * image[pred] + .4 * np.array([0, 0, 255])).astype(np.uint8)
     item = {"id": entry["id"], "name": entry["name"], "inference_ms": ms, "processing_ms": total,
             "mask": png(pred.astype(np.uint8) * 255), "overlay": png(overlay), "metrics": None,
-            "architecture": entry["architecture"], "checkpoint": entry["weights"], "threshold": .5,
+            "architecture": entry["architecture"], "encoder": entry["encoder"],
+            "experiment": entry.get("experiment"), "parameter_count": parameter_count,
+            "checkpoint": entry["weights"], "threshold": .5,
             "foreground_pixels": int(pred.sum()), "foreground_percent": round(float(pred.mean()) * 100, 3),
             "empty_mask": not bool(pred.any())}
     if gold is not None:
@@ -195,7 +200,7 @@ def evaluation_entries():
     return [entry for entry in REGISTRY if entry.get("evaluation_enabled", True) and model_status(entry)["ready_for_evaluation"]]
 
 
-def segment_upload(file, model_ids, ground_truth=None):
+def segment_upload(file, model_ids, ground_truth=None, resize_ground_truth=False):
     started = time.perf_counter()
     try:
         entries = [config(model_id) for model_id in model_ids]
@@ -206,10 +211,23 @@ def segment_upload(file, model_ids, ground_truth=None):
                 raise HTTPException(503, "Chưa có checkpoint: " + entry["name"])
         image = decode_upload(file)
         gold = decode_upload(ground_truth, mask=True) if ground_truth else None
-        if gold is not None and gold.shape != image.shape[:2]:
-            raise HTTPException(400, "Mask chuẩn phải cùng kích thước ảnh gốc; không tự co giãn mask để chấm điểm")
+        alignment = None
+        if gold is not None:
+            mismatch = gold.shape != image.shape[:2]
+            alignment = {"original_width": gold.shape[1], "original_height": gold.shape[0],
+                         "target_width": image.shape[1], "target_height": image.shape[0],
+                         "resized": mismatch, "method": "nearest" if mismatch else "none"}
+            if mismatch:
+                if not resize_ground_truth:
+                    raise HTTPException(400,
+                        f"Ground Truth ({gold.shape[1]} × {gold.shape[0]} px) khác kích thước ảnh nội soi "
+                        f"({image.shape[1]} × {image.shape[0]} px). Nhấn “Căn chỉnh mask theo ảnh” nếu mask "
+                        "thuộc đúng ảnh và chỉ khác độ phân giải, hoặc chọn lại mask tương ứng.")
+                gold = cv2.resize(gold.astype(np.uint8), (image.shape[1], image.shape[0]),
+                                  interpolation=cv2.INTER_NEAREST).astype(bool)
         output = [result(entry, image, gold) for entry in entries]
         return {"original": png(image), "ground_truth": png(gold.astype(np.uint8)*255) if gold is not None else None,
+                "ground_truth_alignment": alignment,
                 "device": str(DEVICE), "image_width": image.shape[1], "image_height": image.shape[0],
                 "results": output, "total_ms": round((time.perf_counter()-started)*1000, 2)}
     finally:
@@ -220,9 +238,9 @@ def segment_upload(file, model_ids, ground_truth=None):
 
 @router.post("/predict")
 def predict(file: UploadFile = File(...), model: str = Form("unet"),
-            ground_truth: UploadFile | None = File(None)):
+            ground_truth: UploadFile | None = File(None), resize_ground_truth: bool = Form(False)):
     """model: unet (or final-unet), unetplusplus (or unet++)."""
-    response = segment_upload(file, [model], ground_truth)
+    response = segment_upload(file, [model], ground_truth, resize_ground_truth)
     prediction = response["results"][0]
     # Preserve the original /predict fields for existing API clients.
     response.update(model=prediction["name"], model_id=prediction["id"],
@@ -233,9 +251,18 @@ def predict(file: UploadFile = File(...), model: str = Form("unet"),
 
 @router.post("/compare")
 def compare(file: UploadFile = File(...), ground_truth: UploadFile | None = File(None),
-            model_a: str = Form("unet"), model_b: str = Form("unetplusplus")):
+            model_a: str = Form("unet"), model_b: str = Form("unetplusplus"),
+            resize_ground_truth: bool = Form(False)):
     """Decode once, run both selected checkpoints on exactly the same image."""
-    return segment_upload(file, [model_a, model_b], ground_truth)
+    return segment_upload(file, [model_a, model_b], ground_truth, resize_ground_truth)
+
+
+@router.post("/evaluate-image")
+def evaluate_image(file: UploadFile = File(...), ground_truth: UploadFile = File(...),
+                   model_a: str = Form("unet"), model_b: str = Form("unetplusplus"),
+                   resize_ground_truth: bool = Form(False)):
+    """Evaluate both models; optionally resize the required ground truth with nearest-neighbor."""
+    return segment_upload(file, [model_a, model_b], ground_truth, resize_ground_truth)
 
 
 @router.get("/history")

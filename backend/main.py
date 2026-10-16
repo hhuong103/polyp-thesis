@@ -35,8 +35,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Polyp Segmentation API",
-    description="Upload an image and choose U-Net, U-Net++, or compare both.",
-    version="2.0.0",
+    description="Segment with U-Net E3 or U-Net++ E4, compare both, and evaluate against ground truth with optional nearest-neighbor resizing.",
+    version="3.1.0",
     lifespan=lifespan,
 )
 app.include_router(router)
@@ -91,4 +91,5 @@ def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8081)
+    uvicorn.run("backend.main:app", host="127.0.0.1", port=8081,
+                reload=True, reload_dirs=[str(ROOT / "backend")])

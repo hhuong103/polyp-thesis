@@ -92,6 +92,11 @@ class WebsiteIntegration(unittest.TestCase):
         self.assertEqual([r['id'] for r in data['results']], ['final-unet', 'unetplusplus'])
         gold = np.array(Image.open(io.BytesIO(self.truth)).convert('L')) > 127
         for result in data['results']:
+            from backend.comparison import config, load_network
+            network = load_network(config(result['id']))
+            self.assertEqual(result['parameter_count'], sum(p.numel() for p in network.parameters()))
+            self.assertEqual(result['encoder'], 'resnet34')
+            self.assertIn(result['experiment'], ('E3', 'E4'))
             mask = np.array(Image.open(io.BytesIO(base64.b64decode(result['mask']))))
             self.assertEqual(mask.shape, gold.shape)
             self.assertTrue(set(np.unique(mask)).issubset({0, 255}))
@@ -101,6 +106,29 @@ class WebsiteIntegration(unittest.TestCase):
             union = int((pred | gold).sum())
             self.assertAlmostEqual(result['metrics']['dice'], 2 * intersection / denominator if denominator else 1)
             self.assertAlmostEqual(result['metrics']['iou'], intersection / union if union else 1)
+
+    def test_evaluation_mode(self):
+        status, raw = request('/api/evaluate-image', self.fields,
+                              {'file': self.image, 'ground_truth': self.truth})
+        self.assertEqual(status, 200, raw[:300])
+        data = json.loads(raw)
+        self.assertIsNotNone(data['ground_truth'])
+        self.assertEqual(len(data['results']), 2)
+        for result in data['results']:
+            self.assertIsNotNone(result['metrics'])
+            self.assertGreater(result['parameter_count'], 0)
+            self.assertEqual(result['foreground_pixels'], int((np.array(Image.open(
+                io.BytesIO(base64.b64decode(result['mask'])))) > 0).sum()))
+        status, _ = request('/api/evaluate-image', self.fields, {'file': self.image})
+        self.assertEqual(status, 422, 'Evaluation Mode must require Ground Truth')
+        small = io.BytesIO()
+        Image.new('L', (2, 2)).save(small, format='PNG')
+        status, raw = request('/api/evaluate-image', self.fields,
+                            {'file': self.image, 'ground_truth': small.getvalue()})
+        self.assertEqual(status, 400, 'Ground Truth must keep its original resolution')
+        self.assertIn('2 × 2', json.loads(raw)['detail'])
+        width, height = Image.open(io.BytesIO(self.image)).size
+        self.assertIn(f'{width} × {height}', json.loads(raw)['detail'])
 
     def test_single_models_match_comparison(self):
         status, raw = request('/api/compare', self.fields, {'file': self.image})
@@ -130,6 +158,41 @@ class WebsiteIntegration(unittest.TestCase):
                 self.assertEqual(mask.shape, original.shape[:2])
                 self.assertEqual(overlay.shape, original.shape)
                 self.assertTrue(np.array_equal(overlay[~mask], original[~mask]))
+
+    def test_resize_ground_truth_is_explicit_and_binary(self):
+        # A 0/1 PNG exercises binary decoding as well as asymmetric nearest resizing.
+        source = np.array([[0, 1, 0], [1, 0, 1]], dtype=np.uint8)
+        stream = io.BytesIO()
+        Image.fromarray(source).save(stream, format='PNG')
+        width, height = Image.open(io.BytesIO(self.image)).size
+        expected = source[(np.arange(height) * 2 // height)[:, None],
+                          (np.arange(width) * 3 // width)[None, :]] > 0
+        for endpoint, selection in (
+            ('/api/evaluate-image', self.fields),
+            ('/api/compare', self.fields),
+            ('/api/predict', {'model': 'unet'}),
+            ('/predict', {'model': 'unetplusplus'}),
+        ):
+            with self.subTest(endpoint=endpoint):
+                files = {'file': self.image, 'ground_truth': stream.getvalue()}
+                status, _ = request(endpoint, selection, files)
+                self.assertEqual(status, 400, 'Resizing requires an explicit choice')
+                status, raw = request(endpoint, {**selection, 'resize_ground_truth': 'true'}, files)
+                self.assertEqual(status, 200, raw[:300])
+                data = json.loads(raw)
+                self.assertEqual(data['ground_truth_alignment'], {
+                    'original_width': 3, 'original_height': 2, 'target_width': width,
+                    'target_height': height, 'resized': True, 'method': 'nearest'})
+                gold = np.array(Image.open(io.BytesIO(base64.b64decode(data['ground_truth']))))
+                self.assertTrue(set(np.unique(gold)).issubset({0, 255}))
+                np.testing.assert_array_equal(gold > 0, expected)
+                for result in data['results']:
+                    pred = np.array(Image.open(io.BytesIO(base64.b64decode(result['mask'])))) > 0
+                    intersection = int((pred & expected).sum())
+                    self.assertAlmostEqual(result['metrics']['dice'],
+                                           2 * intersection / int(pred.sum() + expected.sum()))
+                    self.assertAlmostEqual(result['metrics']['iou'],
+                                           intersection / int((pred | expected).sum()))
 
     def test_single_with_ground_truth(self):
         status, raw = request('/api/predict', {'model': 'unetplusplus'},

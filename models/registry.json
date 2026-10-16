@@ -1,7 +1,8 @@
 [
   {
     "id": "final-unet",
-    "name": "U-Net · mô hình chính",
+    "name": "U-Net E3",
+    "experiment": "E3",
     "architecture": "unet",
     "encoder": "resnet34",
     "weights": "models/final_polyp_model.pth",
@@ -11,7 +12,8 @@
   },
   {
     "id": "unetplusplus",
-    "name": "U-Net++ · ResNet34",
+    "name": "U-Net++ E4",
+    "experiment": "E4",
     "architecture": "unetplusplus",
     "encoder": "resnet34",
     "weights": "results/unetplusplus_resnet34_seed42/best_weights.pth",
