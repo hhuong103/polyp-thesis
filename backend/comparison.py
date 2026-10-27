@@ -18,6 +18,9 @@ from PIL import Image
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
+from src.metrics import scores, restore_mask
+from src.paths import dataset_path as portable_dataset_path
+
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = json.loads((ROOT / "models/registry.json").read_text(encoding="utf-8"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -69,15 +72,6 @@ def decode_upload(upload, mask=False):
         upload.file.close()
 
 
-def scores(pred, gold):
-    tp = int(np.count_nonzero(pred & gold))
-    fp = int(np.count_nonzero(pred & ~gold))
-    fn = int(np.count_nonzero(~pred & gold))
-    return {"dice": 2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 1.0,
-            "iou": tp / (tp + fp + fn) if tp + fp + fn else 1.0,
-            "false_positive_pixels": fp, "false_negative_pixels": fn}
-
-
 def load_network(entry):
     """Shared cache for single prediction, comparison, and test evaluation."""
     with LOCK:
@@ -112,9 +106,9 @@ def infer(entry, image):
             torch.cuda.synchronize()
         tick = time.perf_counter()
         with torch.inference_mode():
-            pred = (torch.sigmoid(net(tensor))[0, 0] >= .5).cpu().numpy().astype(np.uint8)
+            probability = torch.sigmoid(net(tensor))[0, 0].cpu().numpy()
         inference_ms = (time.perf_counter() - tick) * 1000
-        mask = cv2.resize(pred, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST).astype(bool)
+        mask = restore_mask(probability, image.shape[:2], entry.get('threshold', .5))
     return mask, round(inference_ms, 2), round((time.perf_counter() - start) * 1000, 2)
 
 
@@ -129,7 +123,8 @@ def result(entry, image, gold=None):
             "mask": png(pred.astype(np.uint8) * 255), "overlay": png(overlay), "metrics": None,
             "architecture": entry["architecture"], "encoder": entry["encoder"],
             "experiment": entry.get("experiment"), "parameter_count": parameter_count,
-            "checkpoint": entry["weights"], "threshold": .5,
+            "checkpoint": entry["weights"], "threshold": entry.get('threshold', .5),
+            "research_status": entry.get('research_status', 'not_verified'),
             "foreground_pixels": int(pred.sum()), "foreground_percent": round(float(pred.mean()) * 100, 3),
             "empty_mask": not bool(pred.any())}
     if gold is not None:
@@ -295,10 +290,7 @@ def split_rows():
 
 
 def dataset_path(value):
-    path = (ROOT / value.replace("\\", "/")).resolve()
-    if not path.is_relative_to((ROOT / "data").resolve()):
-        raise ValueError("Đường dẫn dataset không hợp lệ")
-    return path
+    return portable_dataset_path(value, ROOT)
 
 
 def pair(row):
@@ -358,7 +350,9 @@ def evaluate():
         if provenance != fingerprint(entries) or stamps != source_stamps(entries):
             raise ValueError("Checkpoint hoặc split đã thay đổi trong lúc chạy; hãy chạy lại")
         report = {"created_at": datetime.now(timezone.utc).isoformat(), "fingerprints": provenance, "source_stamps": stamps, "models": output,
-                  "method": "Macro mean per image; original resolution; threshold 0.5; empty/empty = 1; test.csv. Dataset independence not verified."}
+                  "method": "Macro mean per image; original resolution; per-model declared threshold (default 0.5); empty/empty = 1; legacy test.csv.",
+                  "research_warning": "Split cũ có ảnh gần trùng giữa train/validation/test. Không dùng báo cáo này để kết luận ưu thế kiến trúc.",
+                  "research_status": "legacy_split_has_near_duplicates"}
         REPORT.parent.mkdir(parents=True, exist_ok=True)
         tmp = REPORT.with_suffix(".tmp")
         tmp.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
@@ -386,11 +380,26 @@ def evaluation():
         job = dict(JOB)
     report = json.loads(REPORT.read_text(encoding="utf-8")) if REPORT.is_file() else None
     if report:
+        report['research_warning'] = 'Split cũ có ảnh gần trùng qua các tập. Báo cáo này chưa chứng minh ưu thế kiến trúc.'
         try:
             report["stale"] = report.get("source_stamps") != source_stamps()
         except (OSError, ValueError):
             report["stale"] = True
     return {"job": job, "report": report}
+
+
+@router.get('/study')
+def study():
+    """Expose the new matched study separately from legacy checkpoint evaluation."""
+    folder = ROOT / 'results/experiments/grouped_v2_cpu'
+    output = {'status': {'phase': 'not_started'}, 'summary': None}
+    for filename, key in (('status.json', 'status'), ('summary.json', 'summary')):
+        path = folder / filename
+        if path.is_file():
+            output[key] = json.loads(path.read_text(encoding='utf-8'))
+    if output['status'].get('phase') != 'complete':
+        output['summary'] = None
+    return output
 
 
 @router.get("/evaluation/case/{model_id}/{index}")

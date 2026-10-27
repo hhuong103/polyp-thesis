@@ -189,7 +189,7 @@ function activateTab(tab, reset = true) {
     button.classList.toggle('active', button.dataset.tab === tab);
     button.setAttribute('aria-pressed', String(button.dataset.tab === tab));
   });
-  if (tab === 'research') { loadHistory(); return; }
+  if (tab === 'research') { loadHistory(); loadStudy(); return; }
   const modes = {segment: 'single', compare: 'compare', evaluation: 'evaluation'};
   const previous = $('prediction-mode').value;
   $('prediction-mode').value = modes[tab];
@@ -313,7 +313,7 @@ function chart(rows,keys,title){const box=el('div'),canvas=el('canvas');canvas.w
 async function loadHistory(){try{const histories=await api('/api/history');$('histories').replaceChildren();histories.forEach(h=>{const box=el('article',null,'history');box.append(el('h3',h.name));if(!h.rows.length){box.append(el('p',h.error||'Chưa có lịch sử huấn luyện. Không tạo biểu đồ từ dữ liệu giả.'),el('code',h.path));}else{box.append(chart(h.rows,['train_loss','val_loss'],'Loss theo epoch'),chart(h.rows,['val_dice','val_iou'],'Validation Dice / IoU'));const detail=el('details');detail.append(el('summary','Xem số liệu từng epoch'),table(['Epoch','Train loss','Val loss','Dice','IoU'],h.rows.map(r=>[r.epoch,fmt(r.train_loss),fmt(r.val_loss),fmt(r.val_dice),fmt(r.val_iou)])));box.append(detail)}$('histories').append(box)})}catch(e){$('histories').textContent=e.message}}
 $('refresh-history').onclick=loadHistory;
 async function showCase(id,index){$('case-results').textContent='Đang tải trường hợp kiểm thử…';try{const d=await api(`/api/evaluation/case/${encodeURIComponent(id)}/${index}`);renderResults($('case-results'),d);$('case-results').append(metrics(d.results));$('case-results').scrollIntoView({behavior:'smooth',block:'start'})}catch(e){$('case-results').textContent=e.message}}
-function report(data){if(!data){$('test-results').textContent='Chưa có báo cáo. Nhấn đánh giá để chạy toàn bộ test.csv.';return;}if(reportStamp===data.created_at)return;reportStamp=data.created_at;$('test-results').replaceChildren(el('p','Báo cáo: '+new Date(data.created_at).toLocaleString('vi-VN')),table(['Mô hình','Số ảnh','Mean Dice ↑','Mean IoU ↑','Suy luận TB (ms)'],data.models.map(m=>[m.name,m.count,fmt(m.dice),fmt(m.iou),m.inference_ms.toFixed(2)])),el('p','Hai mask cùng rỗng: Dice = IoU = 1. Trung bình theo ảnh (macro), không gộp toàn bộ pixel. Báo cáo lưu theo checkpoint tại thời điểm chạy; chạy lại khi đổi weights hoặc dữ liệu.'));$('failures').replaceChildren();data.models.forEach(m=>{const box=el('div');box.append(el('h3',m.name));box.append(table(['Ảnh test','Dice','IoU','FP','FN',''],m.samples.slice(0,5).map(s=>{const b=el('button','Xem sai lệch ↗');b.onclick=()=>showCase(m.id,s.index);return[s.image.split(/[\\/]/).at(-1),fmt(s.dice),fmt(s.iou),s.false_positive_pixels,s.false_negative_pixels,b]})));$('failures').append(box)})}
+function report(data){if(!data){$('test-results').textContent='Chưa có báo cáo. Nhấn đánh giá để chạy toàn bộ test.csv.';return;}if(reportStamp===data.created_at)return;reportStamp=data.created_at;$('test-results').replaceChildren(el('p','Báo cáo: '+new Date(data.created_at).toLocaleString('vi-VN')),el('p',data.research_warning || 'Tính độc lập dữ liệu và quy trình huấn luyện cần được xác minh.', 'notice'),table(['Mô hình','Số ảnh','Mean Dice ↑','Mean IoU ↑','Suy luận TB (ms)'],data.models.map(m=>[m.name,m.count,fmt(m.dice),fmt(m.iou),m.inference_ms.toFixed(2)])),el('p','Hai mask cùng rỗng: Dice = IoU = 1. Trung bình theo ảnh (macro), không gộp toàn bộ pixel. Báo cáo lưu theo checkpoint tại thời điểm chạy; chạy lại khi đổi weights hoặc dữ liệu.'));$('failures').replaceChildren();data.models.forEach(m=>{const box=el('div');box.append(el('h3',m.name));box.append(table(['Ảnh test','Dice','IoU','FP','FN',''],m.samples.slice(0,5).map(s=>{const b=el('button','Xem sai lệch ↗');b.onclick=()=>showCase(m.id,s.index);return[s.image.split(/[\\/]/).at(-1),fmt(s.dice),fmt(s.iou),s.false_positive_pixels,s.false_negative_pixels,b]})));$('failures').append(box)})}
 async function poll(){clearTimeout(polling);try{const d=await api('/api/evaluation'),j=d.job;$('evaluate').disabled=j.status==='running';$('progress').hidden=j.status!=='running';$('progress').max=j.total||1;$('progress').value=j.completed;$('evaluation-status').textContent=j.status==='running'?`Đang đánh giá ${j.completed}/${j.total} lượt suy luận…`:j.status==='error'?'Lỗi đánh giá: '+j.error:j.status==='complete'?'Đã đánh giá xong.':'';report(d.report);if(j.status==='running')polling=setTimeout(poll,1800)}catch(e){$('evaluation-status').textContent=e.message;$('evaluate').disabled=false}}
 $('evaluate').onclick=async()=>{$('evaluate').disabled=true;try{await api('/api/evaluation',{method:'POST'});poll()}catch(e){$('evaluation-status').textContent=e.message;$('evaluate').disabled=false}};
 function renderTraining() {
@@ -363,3 +363,18 @@ async function refreshModels() {
 $('refresh-models').onclick = refreshModels;
 setInterval(() => { if (!document.hidden) refreshModels(); }, 15000);
 refreshModels();
+
+async function loadStudy() {
+  try {
+    const data = await api('/api/study'), state = data.status;
+    const labels = {not_started: 'Chưa khởi chạy', training: 'Đang huấn luyện', evaluating: 'Đang đánh giá tập test', complete: 'Đã hoàn tất', error: 'Thí nghiệm gặp lỗi'};
+    $('study-status').textContent = `${labels[state.phase] || state.phase} · ${state.completed_runs || 0}/${state.total_runs || 6} lượt` + (state.run ? ` · ${state.run}` : '') + (state.error ? ` · ${state.error}` : '');
+    $('study-results').replaceChildren();
+    if (data.summary) {
+      const fixed = data.summary.models.fixed_0_5;
+      $('study-results').append(table(['Mô hình', 'Dice mean ± SD giữa seed', 'IoU mean ± SD giữa seed'], Object.entries(fixed).map(([name, metrics]) => [name, `${fmt(metrics.dice.mean)} ± ${fmt(metrics.dice.std_across_seeds)}`, `${fmt(metrics.iou.mean)} ± ${fmt(metrics.iou.std_across_seeds)}`])));
+      $('study-results').append(el('p', 'Cùng ngưỡng 0,5 và độ phân giải gốc. Với ít seed, kiểm định thống kê có lực thấp; metadata bệnh nhân/video chưa được xác minh.', 'note'));
+    }
+  } catch (error) { $('study-status').textContent = error.message; }
+}
+$('refresh-study').onclick = loadStudy;

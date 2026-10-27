@@ -15,5 +15,8 @@
     "train": "b8721aab8170ccb20a8c65e7fe03c1d95cb0b3ab0271a6700e90ca99f9c24731",
     "val": "3be1f55aa73242ed2030f7c8bbbaf01f07b18268758e48ad91fc9e3034ee068c",
     "test": "04988c6c59186d4992ee625c77d3a49257f865a7ca6a6537b5b97d591da501d4"
-  }
+  },
+  "augmentation_verified": false,
+  "provenance_note": "Historical augmentation=true is an unverified claim; original training script/history unavailable. Preserved without relabeling the checkpoint.",
+  "research_status": "legacy_split_has_near_duplicates"
 }

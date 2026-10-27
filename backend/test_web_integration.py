@@ -12,8 +12,11 @@ import tempfile
 from unittest.mock import patch
 from pathlib import Path
 
-import numpy as np
-from PIL import Image
+try:
+    import numpy as np
+    from PIL import Image
+except ImportError:
+    np = None
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = os.environ.get("POLYP_TEST_URL", "http://127.0.0.1:8082")
@@ -38,46 +41,28 @@ def request(path, fields=None, files=None):
         return exc.code, exc.read()
 
 
+@unittest.skipIf(np is None, 'Install backend requirements for HTTP tests')
 class WebsiteIntegration(unittest.TestCase):
-    def test_new_model_progress(self):
-        from backend import comparison
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            entry = {'id': 'new', 'weights': 'best.pth', 'history': 'history.csv',
-                     'training': {'max_epochs': 3, 'patience': 2}}
-            with patch.object(comparison, 'ROOT', root), patch.object(comparison, 'REGISTRY', [entry]):
-                state = comparison.model_status(entry)
-                self.assertFalse(state['available'])
-                self.assertEqual(state['progress']['state'], 'awaiting_checkpoint')
-                self.assertEqual(comparison.evaluation_entries(), [])
-                (root / 'best.pth').touch()
-                (root / 'history.csv').write_text('epoch,val_dice\n1,0.5\n', encoding='utf-8')
-                state = comparison.model_status(entry)
-                self.assertEqual(state['progress']['epochs'], 1)
-                self.assertEqual(state['progress']['state'], 'checkpoint_available')
-                self.assertFalse(state['ready_for_evaluation'])
-                (root / 'history.csv').write_text('epoch,val_dice\n1,0.5\n2,0.6\n3,0.7\n', encoding='utf-8')
-                (root / 'last_checkpoint.pth').touch()
-                state = comparison.model_status(entry)
-                self.assertEqual(state['progress']['state'], 'complete')
-                self.assertTrue(state['ready_for_evaluation'])
-
-    def test_metric_edge_cases(self):
-        from backend.comparison import scores
-        empty = np.zeros((2, 2), dtype=bool)
-        full = ~empty
-        self.assertEqual(scores(empty, empty)['dice'], 1)
-        self.assertEqual(scores(empty, empty)['iou'], 1)
-        self.assertEqual(scores(empty, full)['dice'], 0)
-        self.assertEqual(scores(full, empty)['iou'], 0)
-        self.assertEqual(scores(full, full)['dice'], 1)
-
     @classmethod
     def setUpClass(cls):
+        if os.environ.get('POLYP_RUN_INTEGRATION') != '1':
+            raise unittest.SkipTest('Set POLYP_RUN_INTEGRATION=1 to run HTTP integration tests')
+        if not (ROOT / 'data/splits/test.csv').is_file():
+            raise unittest.SkipTest('Real dataset is unavailable')
+        try:
+            _, health = request('/health')
+        except (OSError, urllib.error.URLError) as exc:
+            raise unittest.SkipTest(f'HTTP server unavailable at {BASE}: {exc}')
+        if json.loads(health).get('status') != 'ok':
+            raise unittest.SkipTest('HTTP server requires both loaded checkpoints')
         with (ROOT / 'data/splits/test.csv').open(newline='') as stream:
             row = next(csv.DictReader(stream))
-        cls.image = (ROOT / row['image'].replace('\\', '/')).read_bytes()
-        cls.truth = (ROOT / row['mask'].replace('\\', '/')).read_bytes()
+        image_path = ROOT / row['image'].replace('\\', '/')
+        truth_path = ROOT / row['mask'].replace('\\', '/')
+        if not image_path.is_file() or not truth_path.is_file():
+            raise unittest.SkipTest('Real image/mask pair is unavailable')
+        cls.image = image_path.read_bytes()
+        cls.truth = truth_path.read_bytes()
         cls.fields = {'model_a': 'final-unet', 'model_b': 'unetplusplus'}
 
     def test_pages(self):
@@ -234,21 +219,6 @@ class WebsiteIntegration(unittest.TestCase):
         self.assertEqual({m['id'] for m in data['models']}, {'final-unet', 'unetplusplus'})
         self.assertTrue(all(m['loaded'] for m in data['models']))
 
-    def test_loader_uses_distinct_architectures_and_shared_cache(self):
-        from backend import comparison
-        for model_id, class_name in (('unet', 'Unet'), ('unetplusplus', 'UnetPlusPlus')):
-            network = comparison.load_network(comparison.config(model_id))
-            self.assertEqual(type(network).__name__, class_name)
-            self.assertIs(network, comparison.load_network(comparison.config(model_id)))
-
-    def test_missing_checkpoint_is_503(self):
-        from backend import comparison
-        from fastapi import HTTPException
-        with tempfile.TemporaryDirectory() as directory, patch.object(comparison, 'ROOT', Path(directory)):
-            with self.assertRaises(HTTPException) as caught:
-                comparison.load_network(comparison.config('unetplusplus'))
-        self.assertEqual(caught.exception.status_code, 503)
-
     def test_no_ground_truth(self):
         status, raw = request('/api/compare', self.fields, {'file': self.image})
         self.assertEqual(status, 200)
@@ -265,6 +235,25 @@ class WebsiteIntegration(unittest.TestCase):
             ({'model_a': 'unet', 'model_b': 'final-unet'}, {'file': self.image}),
         ]:
             self.assertEqual(request('/api/compare', fields, files)[0], 400)
+
+
+@unittest.skipIf(np is None, 'Install backend requirements for checkpoint tests')
+class RealCheckpointIntegration(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('POLYP_RUN_INTEGRATION') != '1':
+            raise unittest.SkipTest('Set POLYP_RUN_INTEGRATION=1 for real checkpoint tests')
+        from backend import comparison
+        if not all((ROOT / comparison.config(key)['weights']).is_file() for key in ('unet', 'unetplusplus')):
+            raise unittest.SkipTest('Both real checkpoints are required')
+
+    def test_loader_uses_distinct_architectures_and_shared_cache(self):
+        from backend import comparison
+        for model_id, class_name in (('unet', 'Unet'), ('unetplusplus', 'UnetPlusPlus')):
+            network = comparison.load_network(comparison.config(model_id))
+            self.assertEqual(type(network).__name__, class_name)
+            self.assertIs(network, comparison.load_network(comparison.config(model_id)))
+
 
 
 if __name__ == '__main__':

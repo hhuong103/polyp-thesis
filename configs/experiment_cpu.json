@@ -1,0 +1,21 @@
+{
+  "name": "grouped_v2_cpu",
+  "models": ["unet", "unetplusplus"],
+  "seeds": [42, 43, 44],
+  "split_dir": "data/splits/grouped_v2",
+  "epochs": 50,
+  "batch_size": 4,
+  "learning_rate": 0.0001,
+  "patience": 10,
+  "scheduler_patience": 3,
+  "image_size": 256,
+  "augmentation": true,
+  "deterministic": true,
+  "calibrate_threshold": true,
+  "encoder_init": "imagenet",
+  "encoder_weights": "models/initialization/resnet34_imagenet.pth",
+  "scheduler": "plateau",
+  "device": "cpu",
+  "threads": 4,
+  "bootstrap_repetitions": 5000
+}

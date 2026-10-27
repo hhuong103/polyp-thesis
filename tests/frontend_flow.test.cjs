@@ -79,6 +79,7 @@ const context = vm.createContext({
     createElement: tag => new Element(tag), createTextNode: text => { const n = new Element('#text'); n.textContent = text; return n; }},
   setInterval() {}, clearTimeout() {}, setTimeout() {},
   fetch: async (url, options) => {
+    if (url === '/api/study') return {ok: true, json: async () => ({status: {phase: 'not_started'}, summary: null})};
     if (url === '/api/models') return {ok: true, json: async () => ({device: 'cpu', models})};
     if (url === '/api/evaluation') return {ok: true, json: async () => ({job: {status: 'idle'}, report: null})};
     calls.push({url, form: options.body});

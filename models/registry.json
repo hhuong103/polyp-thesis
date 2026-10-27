@@ -8,7 +8,9 @@
     "weights": "models/final_polyp_model.pth",
     "image_size": 256,
     "history": "results/unet_resnet34_seed42/history.csv",
-    "note": "Checkpoint đã huấn luyện; cần xác minh tập test độc lập với quá trình huấn luyện."
+    "note": "Checkpoint cũ: split có ảnh gần trùng qua các tập; chưa xác minh augmentation/nguồn gốc huấn luyện. Chưa dùng để kết luận ưu thế kiến trúc.",
+    "research_status": "legacy_split_has_near_duplicates",
+    "augmentation_verified": false
   },
   {
     "id": "unetplusplus",
@@ -19,8 +21,14 @@
     "weights": "results/unetplusplus_resnet34_seed42/best_weights.pth",
     "image_size": 256,
     "history": "results/unetplusplus_resnet34_seed42/history.csv",
-    "training": {"max_epochs": 50, "patience": 8},
-    "note": "Checkpoint tốt nhất theo validation Dice. Khi chưa hoàn tất huấn luyện, kết quả chỉ là tạm thời."
+    "training": {
+      "max_epochs": 50,
+      "patience": 8
+    },
+    "note": "Checkpoint cũ: huấn luyện không augmentation; split có ảnh gần trùng qua các tập. Cần dùng kết quả thí nghiệm grouped nhiều seed để đánh giá kiến trúc.",
+    "research_status": "legacy_split_has_near_duplicates",
+    "augmentation_verified": true,
+    "augmentation": false
   },
   {
     "id": "smoke-unet",
